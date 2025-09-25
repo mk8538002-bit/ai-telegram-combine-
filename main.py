@@ -46,63 +46,20 @@ def mark_published(topic_id: int, content: str):
     conn.close()
 
 def generate_text(topic: str) -> str:
+    import os
     resp = requests.post(
-        "https://api.together.xyz/v1/chat/completions",
-        headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+            "HTTP-Referer": "https://your-app.com",
+            "X-Title": "AI Telegram Combine",
+            "Content-Type": "application/json"
+        },
         json={
-            "model": "Qwen/Qwen2-72B-Instruct",
+            "model": "qwen/qwen-2-72b-instruct",
             "messages": [{"role": "user", "content": f"Напиши короткий пост для Telegram на тему: '{topic}'. Добавь 2 эмодзи и 2 хэштега. Тон: дружелюбный эксперт."}],
             "max_tokens": 500
         },
         timeout=30
     )
     return resp.json()["choices"][0]["message"]["content"]
-
-async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Использование: /add <тема>")
-        return
-    topic = " ".join(context.args)
-    add_topic(topic)
-    await update.message.reply_text(f"✅ Тема добавлена: {topic}")
-
-async def publish_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    row = get_pending_topic()
-    if not row:
-        await update.message.reply_text("Нет тем со статусом 'pending'")
-        return
-
-    topic_id, topic = row
-    await update.message.reply_text(f"Генерирую пост: {topic}...")
-
-    try:
-        text = generate_text(topic)
-        await context.bot.send_message(chat_id=CHANNEL_CHAT_ID, text=text, parse_mode="HTML")
-        mark_published(topic_id, text)
-        await update.message.reply_text("✅ Опубликовано в канал!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("SELECT id, topic, status FROM content ORDER BY id DESC LIMIT 10")
-    rows = cur.fetchall()
-    conn.close()
-    if not rows:
-        await update.message.reply_text("База пуста")
-        return
-    msg = "📋 Последние темы:\n\n"
-    for r in rows:
-        msg += f"{r[0]}. {r[1]} — <b>{r[2]}</b>\n"
-    await update.message.reply_text(msg, parse_mode="HTML")
-
-def main():
-    init_db()
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("add", add_command))
-    app.add_handler(CommandHandler("publish", publish_command))
-    app.add_handler(CommandHandler("list", list_command))
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
